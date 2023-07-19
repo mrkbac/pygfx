@@ -42,6 +42,8 @@ class Buffer(Resource):
         # The actual data (optional)
         self._data = None
         self._gfx_pending_uploads = []  # list of (offset, size) tuples
+        self._gfx_pending_downloads = []
+        self._download_done_cb = None
 
         # Backends-specific attributes for internal use
         self._wgpu_object = None
@@ -166,11 +168,11 @@ class Buffer(Resource):
         elif offset + size > self.nitems:
             size = self.nitems - offset
         # Merge with current entry?
-        if self._gfx_pending_uploads:
-            cur_offset, cur_size = self._gfx_pending_uploads.pop(-1)
-            end = max(offset + size, cur_offset + cur_size)
-            offset = min(offset, cur_offset)
-            size = end - offset
+        # if self._gfx_pending_uploads:
+        #     cur_offset, cur_size = self._gfx_pending_uploads.pop(-1)
+        #     end = max(offset + size, cur_offset + cur_size)
+        #     offset = min(offset, cur_offset)
+        #     size = end - offset
         # Limit and apply
         self._gfx_pending_uploads.append((offset, size))
         self._rev += 1
@@ -194,6 +196,53 @@ class Buffer(Resource):
         # Slice it
         sub_arr = arr[offset : offset + size]
         return memoryview(np.ascontiguousarray(sub_arr))
+
+    def download_range(self, offset=0, size=2**50):
+        """Mark a certain range of the data for download from the GPU. The
+        offset and size are expressed in integer number of elements.
+        """
+        # TODO: Support range
+        # See ThreeJS BufferAttribute.updateRange
+        # Check input
+        if not isinstance(offset, int) and isinstance(size, int):
+            raise TypeError(
+                f"`offset` and `size` must be native `int` type, you have passed: "
+                f"offset: <{type(offset)}>, size: <{type(size)}>"
+            )
+
+        if size == 0:
+            return
+        elif size < 0:
+            raise ValueError("Update size must not be negative")
+        elif offset < 0:
+            raise ValueError("Update offset must not be negative")
+        elif offset + size > self.nitems:
+            size = self.nitems - offset
+        # Merge with current entry?
+        if self._gfx_pending_downloads:
+            cur_offset, cur_size = self._gfx_pending_downloads.pop(-1)
+            end = max(offset + size, cur_offset + cur_size)
+            offset = min(offset, cur_offset)
+            size = end - offset
+        # Limit and apply
+        self._gfx_pending_downloads.append((offset, size))
+        self._rev += 1
+        self._gfx_mark_for_sync()
+        # note: this can be smarter, we have logic for chunking in the morph tool
+
+    def _set_data(self, data): # TODO: sub data
+        data = np.frombuffer(data, dtype=self.data.dtype)
+
+        mem = memoryview(data)
+        if mem.format == "d":
+            raise ValueError("Float64 data is not supported, use float32 instead.")
+
+        self._data = data
+        self._mem = mem
+
+        if self._download_done_cb is not None:
+            self._download_done_cb()
+            self._download_done_cb = None
 
 
 def format_from_memoryview(mem):

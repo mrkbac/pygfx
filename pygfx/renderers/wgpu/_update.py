@@ -57,31 +57,43 @@ def _update_buffer(buffer):
 
     # Get and reset pending uploads
     pending_uploads = buffer._gfx_pending_uploads
-    if not pending_uploads:
-        return
-    buffer._gfx_pending_uploads = []
+    if pending_uploads:
+        buffer._gfx_pending_uploads = []
 
-    # Prepare for data uploads
-    device = get_shared().device
-    bytes_per_item = buffer.nbytes // buffer.nitems
+        # Prepare for data uploads
+        device = get_shared().device
+        bytes_per_item = buffer.nbytes // buffer.nitems
 
-    # Upload any pending data
-    for offset, size in pending_uploads:
-        subdata = buffer._get_subdata(offset, size)
-        # A: map the buffer, writes to it, then unmaps. But we don't offer a mapping API in wgpu-py
-        # B: roll data in new buffer, copy from there to existing buffer
-        # tmp_buffer = device.create_buffer_with_data(
-        #     data=subdata,
-        #     usage=wgpu.BufferUsage.COPY_SRC,
-        # )
-        # boffset, bsize = bytes_per_item * offset, bytes_per_item * size
-        # encoder.copy_buffer_to_buffer(tmp_buffer, 0, buffer, boffset, bsize)
-        # C: using queue. This may be sugar for B, but it may also be optimized.
-        device.queue.write_buffer(
-            wgpu_buffer, bytes_per_item * offset, subdata, 0, subdata.nbytes
-        )
-        # D: A staging buffer/belt https://github.com/gfx-rs/wgpu-rs/blob/master/src/util/belt.rs
+        # Upload any pending data
+        for offset, size in pending_uploads:
+            subdata = buffer._get_subdata(offset, size)
+            # A: map the buffer, writes to it, then unmaps. But we don't offer a mapping API in wgpu-py
+            # B: roll data in new buffer, copy from there to existing buffer
+            # tmp_buffer = device.create_buffer_with_data(
+            #     data=subdata,
+            #     usage=wgpu.BufferUsage.COPY_SRC,
+            # )
+            # boffset, bsize = bytes_per_item * offset, bytes_per_item * size
+            # encoder.copy_buffer_to_buffer(tmp_buffer, 0, buffer, boffset, bsize)
+            # C: using queue. This may be sugar for B, but it may also be optimized.
+            device.queue.write_buffer(
+                wgpu_buffer, bytes_per_item * offset, subdata, 0, subdata.nbytes
+            )
+            # D: A staging buffer/belt https://github.com/gfx-rs/wgpu-rs/blob/master/src/util/belt.rs
 
+    if hasattr(buffer, "_gfx_pending_downloads"):
+        preding_downloads = buffer._gfx_pending_downloads
+        if preding_downloads:
+            buffer._gfx_pending_downloads = []
+
+            # Prepare for data uploads
+            device = get_shared().device
+            bytes_per_item = buffer.nbytes // buffer.nitems
+
+            # Upload any pending data
+
+            download_data = device.queue.read_buffer(wgpu_buffer)
+            buffer._set_data(download_data)
 
 def _update_texture(texture):
     wgpu_texture = texture._wgpu_object
@@ -152,6 +164,8 @@ def ensure_wgpu_object(resource):
     if isinstance(resource, Buffer):
         if resource._gfx_pending_uploads:
             resource._wgpu_usage |= wgpu.BufferUsage.COPY_DST
+        if hasattr(resource, "_gfx_pending_downloads"):
+            resource._wgpu_usage |= wgpu.BufferUsage.COPY_SRC
         resource._wgpu_object = device.create_buffer(
             size=resource.nbytes, usage=resource._wgpu_usage
         )

@@ -52,7 +52,7 @@ class Shared(Trackable):
             canvas=None, power_preference="high-performance"
         )
         self._device = self.adapter.request_device(
-            required_features=[], required_limits={}
+            required_features=["VERTEX_WRITABLE_STORAGE"], required_limits={}
         )
 
         # Create a uniform buffer for std info

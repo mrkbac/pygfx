@@ -53,7 +53,7 @@ class ResourceUpdateRegistry:
         # like overdesigning at this point. Let's track in #272.
         if not isinstance(resource, Resource):
             raise TypeError("Given object is not a Resource")
-        if resource._wgpu_object is not None and resource._gfx_pending_uploads:
+        if resource._wgpu_object is not None and (resource._gfx_pending_uploads or resource._gfx_pending_downloads):
             self._syncable.add(resource)
 
     def get_syncable_resources(self, *, flush=False):
